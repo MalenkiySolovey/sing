@@ -114,6 +114,12 @@ func parseUnit(b *rawBytes, unitTable map[string]uint64, caseSensitive bool, byt
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(stringValue) == "" {
+		b.value = 0
+		b.unit = ""
+		b.unitValue = 1
+		return nil
+	}
 	unitIndex := 0
 	for i, c := range stringValue {
 		if c < '0' || c > '9' {

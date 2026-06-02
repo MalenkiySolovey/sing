@@ -1,6 +1,10 @@
 package auth
 
-import "github.com/sagernet/sing/common"
+import (
+	"sync"
+
+	"github.com/sagernet/sing/common"
+)
 
 type User struct {
 	Username string
@@ -9,6 +13,8 @@ type User struct {
 
 type Authenticator struct {
 	userMap map[string][]string
+
+	mu sync.RWMutex
 }
 
 func NewAuthenticator(users []User) *Authenticator {
@@ -24,7 +30,19 @@ func NewAuthenticator(users []User) *Authenticator {
 	return au
 }
 
+func (au *Authenticator) UpdateUsers(users []User) {
+	userMap := make(map[string][]string)
+	for _, user := range users {
+		userMap[user.Username] = append(userMap[user.Username], user.Password)
+	}
+	au.mu.Lock()
+	au.userMap = userMap
+	au.mu.Unlock()
+}
+
 func (au *Authenticator) Verify(username string, password string) bool {
+	au.mu.RLock()
 	passwordList, ok := au.userMap[username]
+	au.mu.RUnlock()
 	return ok && common.Contains(passwordList, password)
 }
