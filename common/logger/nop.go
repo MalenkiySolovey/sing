@@ -19,6 +19,9 @@ func (f *nopLogger) Debug(args ...any) {
 func (f *nopLogger) Info(args ...any) {
 }
 
+func (f *nopLogger) Notice(args ...any) {
+}
+
 func (f *nopLogger) Warn(args ...any) {
 }
 
@@ -38,6 +41,9 @@ func (f *nopLogger) DebugContext(ctx context.Context, args ...any) {
 }
 
 func (f *nopLogger) InfoContext(ctx context.Context, args ...any) {
+}
+
+func (f *nopLogger) NoticeContext(ctx context.Context, args ...any) {
 }
 
 func (f *nopLogger) WarnContext(ctx context.Context, args ...any) {
