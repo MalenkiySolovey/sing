@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing/common"
+	"github.com/sagernet/sing/common/buf"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/common/pipe"
@@ -14,7 +15,7 @@ import (
 )
 
 type Service struct {
-	cache   freelru.Cache[netip.AddrPort, *natConn]
+	cache   *freelru.Cache[netip.AddrPort, *natConn]
 	handler N.UDPConnectionHandlerEx
 	prepare PrepareFunc
 }
@@ -25,12 +26,7 @@ func New(handler N.UDPConnectionHandlerEx, prepare PrepareFunc, timeout time.Dur
 	if timeout == 0 {
 		panic("invalid timeout")
 	}
-	var cache freelru.Cache[netip.AddrPort, *natConn]
-	if !shared {
-		cache = common.Must1(freelru.NewSynced[netip.AddrPort, *natConn](1024, maphash.NewHasher[netip.AddrPort]().Hash32))
-	} else {
-		cache = common.Must1(freelru.NewSharded[netip.AddrPort, *natConn](1024, maphash.NewHasher[netip.AddrPort]().Hash32))
-	}
+	cache := common.Must1(freelru.New[netip.AddrPort, *natConn](1024, maphash.NewHasher[netip.AddrPort]().Hash32, shared))
 	cache.SetLifetime(timeout)
 	cache.SetHealthCheck(func(port netip.AddrPort, conn *natConn) bool {
 		select {
@@ -97,6 +93,17 @@ func (s *Service) NewPacket(bufferSlices [][]byte, source M.Socksaddr, destinati
 	default:
 		packet.Buffer.Release()
 		N.PutPacketBuffer(packet)
+	}
+}
+
+func (s *Service) NewPacketBatch(buffers []*buf.Buffer, sources []M.Socksaddr, destination M.Socksaddr, userData any) {
+	if len(buffers) != len(sources) {
+		buf.ReleaseMulti(buffers)
+		return
+	}
+	for index, buffer := range buffers {
+		s.NewPacket([][]byte{buffer.Bytes()}, sources[index], destination, userData)
+		buffer.Release()
 	}
 }
 
