@@ -64,7 +64,7 @@ type element[K comparable, V comparable] struct {
 
 const emptyBucket = math.MaxUint32
 
-const defaultInitialCapacity = 1024
+const defaultInitialCapacity = 64
 
 // LRU implements a non-thread safe, growable LRU cache.
 type LRU[K comparable, V comparable] struct {

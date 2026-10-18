@@ -14,7 +14,7 @@ func (d Duration) Build() time.Duration {
 }
 
 func (d Duration) MarshalJSON() ([]byte, error) {
-	return json.Marshal((time.Duration)(d).String())
+	return json.Marshal(time.Duration(d).String())
 }
 
 func (d *Duration) UnmarshalJSON(bytes []byte) error {

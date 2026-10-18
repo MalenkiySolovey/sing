@@ -236,7 +236,7 @@ func select32R64(words []uint64, selectIndex, rankIndex []int32, i int32) (int32
 	}
 	ones = bits.OnesCount8(uint8(ww))
 	if ones <= findIth {
-		a = int32(select8Lookup[(ww>>5)&(0x7f8)|uint64(findIth-ones)]) + offset + 8
+		a = int32(select8Lookup[(ww>>5)&0x7f8|uint64(findIth-ones)]) + offset + 8
 	} else {
 		a = int32(select8Lookup[(ww&0xff)<<3|uint64(findIth)]) + offset
 	}

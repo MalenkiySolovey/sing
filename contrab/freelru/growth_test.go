@@ -63,8 +63,8 @@ func TestLRUGrowthRehashesCollisions(t *testing.T) {
 func TestLRUPurgeShrinksToInitialCapacity(t *testing.T) {
 	lru, err := newLRUWithSize[int, int](4096, 8192, testHash)
 	require.NoError(t, err)
-	require.Equal(t, uint32(1024), lru.cap)
-	require.Equal(t, uint32(2048), lru.size)
+	require.Equal(t, uint32(defaultInitialCapacity), lru.cap)
+	require.Equal(t, lru.minSize, lru.size)
 	for key := 0; key < 2048; key++ {
 		lru.Add(key, key)
 	}
@@ -97,7 +97,7 @@ func TestShardedLRUGrowsIndividualShard(t *testing.T) {
 	lru, err := newShardedWithSize[int, int](4, 8192, 8192, hash)
 	require.NoError(t, err)
 	for shard := range lru.lrus {
-		require.Equal(t, uint32(256), lru.lrus[shard].cap)
+		require.Equal(t, uint32(defaultInitialCapacity/4), lru.lrus[shard].cap)
 		require.Equal(t, uint32(2048), lru.lrus[shard].maxCap)
 	}
 	for key := 0; key < 512; key++ {
@@ -105,7 +105,7 @@ func TestShardedLRUGrowsIndividualShard(t *testing.T) {
 	}
 	require.Equal(t, uint32(512), lru.lrus[0].cap)
 	for shard := 1; shard < 4; shard++ {
-		require.Equal(t, uint32(256), lru.lrus[shard].cap)
+		require.Equal(t, uint32(defaultInitialCapacity/4), lru.lrus[shard].cap)
 	}
 }
 

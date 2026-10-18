@@ -91,22 +91,22 @@ func setOptions(options ...internetPerConnOption) error {
 func ClearSystemProxy() error {
 	var flagsOption internetPerConnOption
 	flagsOption.dwOption = internetPerConnFlags
-	*((*uint32)(unsafe.Pointer(&flagsOption.value))) = proxyTypeDirect | proxyTypeAutoDetect
+	*(*uint32)(unsafe.Pointer(&flagsOption.value)) = proxyTypeDirect | proxyTypeAutoDetect
 	return setOptions(flagsOption)
 }
 
 func SetSystemProxy(proxy string, bypass string) error {
 	var flagsOption internetPerConnOption
 	flagsOption.dwOption = internetPerConnFlags
-	*((*uint32)(unsafe.Pointer(&flagsOption.value))) = proxyTypeProxy | proxyTypeDirect
+	*(*uint32)(unsafe.Pointer(&flagsOption.value)) = proxyTypeProxy | proxyTypeDirect
 	var proxyOption internetPerConnOption
 	proxyOption.dwOption = internetPerConnProxyServer
-	*((*uintptr)(unsafe.Pointer(&proxyOption.value))) = uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(proxy)))
+	*(*uintptr)(unsafe.Pointer(&proxyOption.value)) = uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(proxy)))
 	if bypass == "" {
 		return setOptions(flagsOption, proxyOption)
 	}
 	var bypassOption internetPerConnOption
 	bypassOption.dwOption = internetPerConnProxyBypass
-	*((*uintptr)(unsafe.Pointer(&bypassOption.value))) = uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(bypass)))
+	*(*uintptr)(unsafe.Pointer(&bypassOption.value)) = uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(bypass)))
 	return setOptions(flagsOption, proxyOption, bypassOption)
 }
