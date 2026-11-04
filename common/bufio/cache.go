@@ -3,6 +3,7 @@ package bufio
 import (
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 
 	"github.com/sagernet/sing/common/buf"
@@ -164,7 +165,7 @@ func (r *CachedReader) Close() error {
 
 type CachedPacketConn struct {
 	N.PacketConn
-	taken       atomic.Bool
+	cacheAccess sync.Mutex
 	buffer      *buf.Buffer
 	destination M.Socksaddr
 }
@@ -179,28 +180,32 @@ func NewCachedPacketConn(conn N.PacketConn, buffer *buf.Buffer, destination M.So
 }
 
 func (c *CachedPacketConn) ReadPacket(buffer *buf.Buffer) (destination M.Socksaddr, err error) {
+	c.cacheAccess.Lock()
 	if c.buffer != nil {
 		_, err = buffer.ReadOnceFrom(c.buffer)
 		if err != nil {
+			c.cacheAccess.Unlock()
 			return M.Socksaddr{}, err
 		}
 		c.buffer.DecRef()
 		c.buffer.Release()
 		c.buffer = nil
+		c.cacheAccess.Unlock()
 		return c.destination, nil
 	}
+	c.cacheAccess.Unlock()
 	return c.PacketConn.ReadPacket(buffer)
 }
 
 func (c *CachedPacketConn) ReadCachedPacket() *N.PacketBuffer {
-	if !c.taken.CompareAndSwap(false, true) {
+	c.cacheAccess.Lock()
+	defer c.cacheAccess.Unlock()
+	buffer := c.buffer
+	if buffer == nil {
 		return nil
 	}
-	buffer := c.buffer
 	c.buffer = nil
-	if buffer != nil {
-		buffer.DecRef()
-	}
+	buffer.DecRef()
 	packet := N.NewPacketBuffer()
 	*packet = N.PacketBuffer{
 		Buffer:      buffer,
@@ -214,6 +219,8 @@ func (c *CachedPacketConn) Upstream() any {
 }
 
 func (c *CachedPacketConn) ReaderReplaceable() bool {
+	c.cacheAccess.Lock()
+	defer c.cacheAccess.Unlock()
 	return c.buffer == nil
 }
 
@@ -222,12 +229,12 @@ func (c *CachedPacketConn) WriterReplaceable() bool {
 }
 
 func (c *CachedPacketConn) Close() error {
-	if c.taken.CompareAndSwap(false, true) {
-		if buffer := c.buffer; buffer != nil {
-			c.buffer = nil
-			buffer.DecRef()
-			buffer.Release()
-		}
+	c.cacheAccess.Lock()
+	if buffer := c.buffer; buffer != nil {
+		c.buffer = nil
+		buffer.DecRef()
+		buffer.Release()
 	}
+	c.cacheAccess.Unlock()
 	return c.PacketConn.Close()
 }

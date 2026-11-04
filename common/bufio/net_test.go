@@ -13,6 +13,7 @@ import (
 
 	"github.com/sagernet/sing/common/buf"
 	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/common/task"
 
 	"github.com/stretchr/testify/assert"
@@ -279,4 +280,83 @@ func UDPTest(t *testing.T, inputConn net.PacketConn, outputConn net.PacketConn, 
 	}()
 
 	return test(t)
+}
+
+// TestCachedPacketConnOwnership covers the read/Close race hit by TrustTunnel UDP
+// revocation. The cache can be consumed, handed off or closed, exactly once.
+func TestCachedPacketConnOwnership(t *testing.T) {
+	destination := M.ParseSocksaddr("127.0.0.1:443")
+	t.Run("short buffer preserves cache", func(t *testing.T) {
+		cache := buf.NewSize(128)
+		_, err := cache.WriteString("cached packet")
+		require.NoError(t, err)
+		conn := NewCachedPacketConn(&testNetPacketConn{}, cache, destination)
+		_, err = conn.ReadPacket(buf.NewSize(0))
+		require.ErrorIs(t, err, io.ErrShortBuffer)
+		require.False(t, conn.ReaderReplaceable())
+		packet := conn.ReadCachedPacket()
+		require.NotNil(t, packet)
+		require.Equal(t, "cached packet", string(packet.Buffer.Bytes()))
+		require.Equal(t, destination, packet.Destination)
+		packet.Buffer.Release()
+		N.PutPacketBuffer(packet)
+		require.Nil(t, conn.ReadCachedPacket())
+		require.True(t, conn.ReaderReplaceable())
+		require.NoError(t, conn.Close())
+	})
+	for range 256 {
+		cache := buf.NewSize(128)
+		_, err := cache.WriteString("cached packet")
+		require.NoError(t, err)
+		conn := NewCachedPacketConn(&testNetPacketConn{}, cache, destination)
+		start := make(chan struct{})
+		var workers sync.WaitGroup
+		workers.Add(4)
+		var readErr error
+		var readData string
+		var readDestination M.Socksaddr
+		var handedOff *N.PacketBuffer
+		go func() {
+			defer workers.Done()
+			<-start
+			buffer := buf.NewSize(128)
+			defer buffer.Release()
+			readDestination, readErr = conn.ReadPacket(buffer)
+			readData = string(buffer.Bytes())
+		}()
+		go func() {
+			defer workers.Done()
+			<-start
+			handedOff = conn.ReadCachedPacket()
+		}()
+		go func() {
+			defer workers.Done()
+			<-start
+			_ = conn.Close()
+		}()
+		go func() {
+			defer workers.Done()
+			<-start
+			_ = conn.ReaderReplaceable()
+		}()
+		close(start)
+		workers.Wait()
+		if readErr == nil {
+			require.Equal(t, "cached packet", readData)
+			require.Equal(t, destination, readDestination)
+			require.Nil(t, handedOff, "two readers claimed the same packet")
+		} else {
+			require.ErrorIs(t, readErr, io.ErrUnexpectedEOF)
+		}
+		if handedOff != nil {
+			require.Equal(t, "cached packet", string(handedOff.Buffer.Bytes()))
+			require.Equal(t, destination, handedOff.Destination)
+			handedOff.Buffer.Release()
+			N.PutPacketBuffer(handedOff)
+		}
+		require.Nil(t, conn.ReadCachedPacket())
+		require.True(t, conn.ReaderReplaceable())
+		require.NoError(t, conn.Close())
+		require.Equal(t, 0, cache.Len(), "cache allocation was not released")
+	}
 }
