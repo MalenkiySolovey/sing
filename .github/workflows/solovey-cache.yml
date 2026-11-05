@@ -20,3 +20,5 @@ jobs:
           cache: true
       - name: Packet cache ownership and affected bufio suite
         run: go test -race -count=1 -timeout=3m ./common/bufio
+      - name: Lazy TLS handshake and close ownership
+        run: go test -race -count=10 -timeout=3m ./common/tls
