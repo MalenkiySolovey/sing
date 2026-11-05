@@ -4,6 +4,8 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 type Listener struct {
@@ -28,32 +30,32 @@ func (l *Listener) Accept() (net.Conn, error) {
 
 type LazyConn struct {
 	net.Conn
-	tlsConfig     ServerConfig
-	access        sync.Mutex
-	needHandshake bool
+	tlsConfig ServerConfig
+	access    sync.Mutex
+	tlsConn   atomic.Pointer[Conn]
 }
 
 func NewLazyConn(conn net.Conn, config ServerConfig) *LazyConn {
 	return &LazyConn{
-		Conn:          conn,
-		tlsConfig:     config,
-		needHandshake: true,
+		Conn:      conn,
+		tlsConfig: config,
 	}
 }
 
 func (c *LazyConn) HandshakeContext(ctx context.Context) error {
-	if !c.needHandshake {
+	if c.tlsConn.Load() != nil {
 		return nil
 	}
 	c.access.Lock()
 	defer c.access.Unlock()
-	if c.needHandshake {
+	if c.tlsConn.Load() == nil {
 		tlsConn, err := ServerHandshake(ctx, c.Conn, c.tlsConfig)
 		if err != nil {
 			return err
 		}
-		c.Conn = tlsConn
-		c.needHandshake = false
+		// Keep the raw connection stable: promoted net.Conn methods and Close
+		// may run while the handshake is in flight. Publish only its result.
+		c.tlsConn.Store(&tlsConn)
 	}
 	return nil
 }
@@ -63,7 +65,7 @@ func (c *LazyConn) Read(p []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	return c.Conn.Read(p)
+	return c.upstream().Read(p)
 }
 
 func (c *LazyConn) Write(p []byte) (n int, err error) {
@@ -71,21 +73,40 @@ func (c *LazyConn) Write(p []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	return c.Conn.Write(p)
+	return c.upstream().Write(p)
 }
 
+func (c *LazyConn) Close() error {
+	// Never wait for the handshake mutex: closing the raw connection must
+	// interrupt a blocked handshake. Established TLS still owns normal Close.
+	return c.upstream().Close()
+}
+
+func (c *LazyConn) LocalAddr() net.Addr                { return c.upstream().LocalAddr() }
+func (c *LazyConn) RemoteAddr() net.Addr               { return c.upstream().RemoteAddr() }
+func (c *LazyConn) SetDeadline(t time.Time) error      { return c.upstream().SetDeadline(t) }
+func (c *LazyConn) SetReadDeadline(t time.Time) error  { return c.upstream().SetReadDeadline(t) }
+func (c *LazyConn) SetWriteDeadline(t time.Time) error { return c.upstream().SetWriteDeadline(t) }
+
 func (c *LazyConn) NeedHandshake() bool {
-	return c.needHandshake
+	return c.tlsConn.Load() == nil
 }
 
 func (c *LazyConn) ReaderReplaceable() bool {
-	return !c.needHandshake
+	return c.tlsConn.Load() != nil
 }
 
 func (c *LazyConn) WriterReplaceable() bool {
-	return !c.needHandshake
+	return c.tlsConn.Load() != nil
 }
 
 func (c *LazyConn) Upstream() any {
+	return c.upstream()
+}
+
+func (c *LazyConn) upstream() net.Conn {
+	if tlsConn := c.tlsConn.Load(); tlsConn != nil {
+		return *tlsConn
+	}
 	return c.Conn
 }
